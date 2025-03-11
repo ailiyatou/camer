@@ -1,184 +1,226 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>微型OCR识别器</title>
-    <script src="https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
-    <style>
-        /* 移动端适配样式 */
-        body {
-            margin: 0;
-            padding: 10px;
-            font-family: Arial;
-            position: relative;
-        }
-        button {
-            padding: 8px 15px;
-            font-size: 14px;
-            margin: 3px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 3px;
-            transition: opacity 0.3s;
-        }
-        button:disabled {
-            opacity: 0.6;
-            background: #666;
-        }
-        #videoPreview {
-            width: 235px;
-            height: 40px;
-            border: 2px solid #ddd;
-            object-fit: cover;
-            margin: 5px 0;
-        }
-        #result {
-            width: 100%;
-            height: 120px;
-            padding: 8px;
-            margin-top: 10px;
-            border: 1px solid #ccc;
-            resize: vertical;
-            font-size: 12px;
-        }
-        .button-group {
-            margin: 8px 0;
-            display: flex;
-            gap: 5px;
-            flex-wrap: wrap;
-        }
-        .loading {
-            display: none;
-            color: #666;
-            margin: 10px 0;
-        }
-        /* 新增遮罩样式 */
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
-            z-index: 999;
-            display: none;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-        }
-        .overlay-text {
-            color: white;
-            margin-top: 10px;
-            font-size: 16px;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>微型OCR识别器</title>
+  <script src="https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
+  <style>
+    /* 移动端适配样式 */
+    body {
+      margin: 0;
+      padding: 10px;
+      font-family: Arial;
+      position: relative;
+    }
+    button {
+      padding: 8px 15px;
+      font-size: 14px;
+      margin: 3px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      transition: opacity 0.3s;
+    }
+    button:disabled {
+      opacity: 0.6;
+      background: #666;
+    }
+    #videoPreview {
+      width: 235px;
+      height: 40px;
+      border: 5px solid #ddd;
+      object-fit: cover;
+      margin: 5px 0;
+
+    }
+    #capturedImage {
+      width: 235px;
+      height: 40px;
+      border: 5px solid #ddd;
+      object-fit: cover;
+      margin: 5px 0;
+      display: none; /* 初始隐藏 */
+    }
+    #result {
+      width: 100%;
+      height: 120px;
+      padding: 8px;
+      margin-top: 10px;
+      border: 1px solid #ccc;
+      resize: vertical;
+      font-size: 12px;
+    }
+    .button-group {
+      margin: 8px 0;
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    .loading {
+      display: none;
+      color: #666;
+      margin: 10px 0;
+    }
+    /* 新增遮罩样式 */
+    .overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.7);
+      z-index: 999;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+    .overlay-text {
+      color: white;
+      margin-top: 10px;
+      font-size: 16px;
+    }
+  </style>
 </head>
 <body>
-    <h2 style="font-size: 16px; margin: 5px 0;">微型OCR</h2>
-    
-    <!-- 视频预览 -->
-    <video id="videoPreview" autoplay playsinline></video>
-    
-    <!-- 控制按钮 -->
-    <div class="button-group">
-        <button id="startCamera">开启摄像头</button>
-        <button id="captureBtn" disabled>拍照识别</button>
-        <button id="copyBtn" disabled>复制结果</button>
-    </div>
-    
-    <!-- 新增遮罩层 -->
-    <div class="overlay" id="overlay">
-        <div class="loading">识别中...</div>
-        <div class="overlay-text">请保持手机稳定</div>
-    </div>
-    
-    <!-- 识别结果 -->
-    <textarea 
-        id="result" 
+<h2 style="font-size: 16px; margin: 5px 0;">微型OCR</h2>
+
+<!-- 视频预览 -->
+<video id="videoPreview" autoplay playsinline></video>
+
+<!-- 拍照后的取景框 -->
+<img id="capturedImage" alt="Captured Image">
+
+<!-- 控制按钮 -->
+<div class="button-group">
+  <button id="startCamera">开启摄像头</button>
+  <button id="captureBtn" disabled>拍照识别</button>
+  <button id="resetBtn" disabled>重置</button>
+  <button id="copyBtn" disabled>复制结果</button>
+</div>
+
+<!-- 新增遮罩层 -->
+<div class="overlay" id="overlay">
+  <div class="loading">识别中...</div>
+  <div class="overlay-text">请保持手机稳定</div>
+</div>
+
+<!-- 识别结果 -->
+<textarea
+        id="result"
         placeholder="识别结果将显示在这里..."
         readonly
-    ></textarea>
+></textarea>
 
-    <script>
-        const video = document.getElementById('videoPreview');
-        const captureBtn = document.getElementById('captureBtn');
-        const startCameraBtn = document.getElementById('startCamera');
-        const copyBtn = document.getElementById('copyBtn');
-        const overlay = document.getElementById('overlay');
-        let mediaStream = null;
+<script>
+  const video = document.getElementById('videoPreview');
+  const capturedImage = document.getElementById('capturedImage');
+  const captureBtn = document.getElementById('captureBtn');
+  const startCameraBtn = document.getElementById('startCamera');
+  const resetBtn = document.getElementById('resetBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  const overlay = document.getElementById('overlay');
+  let mediaStream = null;
 
-        // 启动摄像头
-        startCameraBtn.addEventListener('click', async () => {
-            try {
-                mediaStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        facingMode: "environment",
-                        width: { ideal: 640 },  // 提高图像质量
-                        height: { ideal: 480 }
-                    } 
-                });
-                video.srcObject = mediaStream;
-                captureBtn.disabled = false;
-                startCameraBtn.textContent = '摄像头已开启';
-            } catch (error) {
-                alert('请允许摄像头权限\n错误信息: ' + error.message);
-            }
-        });
+  // 启动摄像头
+  startCameraBtn.addEventListener('click', async () => {
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 640 },  // 提高图像质量
+          height: { ideal: 480 }
+        }
+      });
+      video.srcObject = mediaStream;
+      captureBtn.disabled = false;
+      startCameraBtn.textContent = '摄像头已开启';
+    } catch (error) {
+      alert('请允许摄像头权限\n错误信息: ' + error.message);
+    }
+  });
 
-        // 拍照识别
-        captureBtn.addEventListener('click', async () => {
-            if (!mediaStream) return;
-            
-            // 显示遮罩
-            overlay.style.display = 'flex';
-            document.body.style.overflow = 'hidden'; // 禁止滚动
+  // 拍照识别
+  captureBtn.addEventListener('click', async () => {
+    if (!mediaStream) return;
 
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0);
+    // 显示遮罩
+    overlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden'; // 禁止滚动
 
-            try {
-                canvas.toBlob(async (blob) => {
-                    const { data: { text } } = await Tesseract.recognize(
-                        new File([blob], 'capture.jpg'),
-                        'eng+chi_sim',
-                        { 
-                            logger: m => console.log(m),
-                            // 优化识别参数
-                            tessedit_pageseg_mode: Tesseract.PSM.AUTO,
-                            tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,?!@#$%&*()-_=+'
-                        }
-                    );
-                    document.getElementById('result').value = text;
-                    copyBtn.disabled = false;
-                }, 'image/jpeg', 0.9); // 调整图片质量
-            } catch (error) {
-                alert('识别失败: ' + error.message);
-            } finally {
-                overlay.style.display = 'none';
-                document.body.style.overflow = 'auto';
-            }
-        });
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
 
-        // 复制结果
-        copyBtn.addEventListener('click', () => {
-            const result = document.getElementById('result');
-            result.select();
-            try {
-                navigator.clipboard.writeText(result.value);
-                alert('已复制到剪贴板');
-            } catch (error) {
-                alert('复制失败，请手动选择文本');
-            }
-        });
+    // 显示拍照后的图像
+    capturedImage.src = canvas.toDataURL('image/jpeg', 0.9);
+    capturedImage.style.display = 'block';
+    video.style.display = 'none'; // 隐藏摄像头预览
 
-        // 关闭摄像头
-        window.addEventListener('beforeunload', () => {
-            if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-        });
-    </script>
+    try {
+      canvas.toBlob(async (blob) => {
+        const { data: { text } } = await Tesseract.recognize(
+                new File([blob], 'capture.jpg'),
+                'eng+chi_sim',
+                {
+                  logger: m => console.log(m),
+                  // 优化识别参数
+                  tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+                  tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,?!@#$%&*()-_=+'
+                }
+        );
+        document.getElementById('result').value = text;
+        copyBtn.disabled = false;
+        resetBtn.disabled = false; // 启用重置按钮
+      }, 'image/jpeg', 0.9); // 调整图片质量
+    } catch (error) {
+      alert('识别失败: ' + error.message);
+    } finally {
+      overlay.style.display = 'none';
+      document.body.style.overflow = 'auto';
+    }
+  });
+
+  // 重置功能
+  resetBtn.addEventListener('click', () => {
+    // 清除取景框
+    capturedImage.src = '';
+    capturedImage.style.display = 'none';
+    video.style.display = 'block'; // 重新显示摄像头预览
+
+    // 清除识别结果
+    document.getElementById('result').value = '';
+    copyBtn.disabled = true;
+    resetBtn.disabled = true;
+
+    // 重新启用摄像头
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop());
+      mediaStream = null;
+    }
+    startCameraBtn.textContent = '开启摄像头';
+    captureBtn.disabled = true;
+  });
+
+  // 复制结果
+  copyBtn.addEventListener('click', () => {
+    const result = document.getElementById('result');
+    result.select();
+    try {
+      navigator.clipboard.writeText(result.value);
+      alert('已复制到剪贴板');
+    } catch (error) {
+      alert('复制失败，请手动选择文本');
+    }
+  });
+
+  // 关闭摄像头
+  window.addEventListener('beforeunload', () => {
+    if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+  });
+</script>
 </body>
 </html>
