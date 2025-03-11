@@ -3,307 +3,137 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智能拍照OCR</title>
+    <title>手机拍照OCR</title>
     <script src="https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
     <style>
+        /* 移动端适配样式 */
         body {
             margin: 0;
             padding: 15px;
             font-family: Arial;
-            background: #f0f2f5;
-        }
-        #previewContainer {
-            position: relative;
-            width: 100%;
-            max-width: 500px;
-            margin: 0 auto;
-        }
-        #videoPreview, #canvasPreview {
-            width: 100%;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            background: #000;
-        }
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
-            display: none;
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-            color: white;
-            font-size: 1.2em;
-        }
-        .selection-box {
-            position: absolute;
-            border: 2px dashed #ff4757;
-            background: rgba(255,71,87,0.1);
-            pointer-events: none;
-        }
-        .button-group {
-            margin: 15px 0;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
         }
         button {
             padding: 12px 20px;
             font-size: 16px;
+            margin: 5px;
+            background: #007bff;
+            color: white;
             border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            flex: 1;
-            min-width: 120px;
-            transition: 0.3s;
+            border-radius: 4px;
         }
-        #startCamera {
-            background: #2ed573;
-            color: white;
-        }
-        #captureBtn {
-            background: #1e90ff;
-            color: white;
-        }
-        #resetBtn {
-            background: #ffa502;
-            color: white;
-        }
-        #cancelSelection {
-            background: #ff4757;
-            color: white;
-        }
-        #copyBtn {
-            background: #2ed573;
-            color: white;
-        }
-        button:disabled {
-            background: #ced6e0 !important;
-            cursor: not-allowed;
+        #videoPreview {
+            width: 100%;
+            max-width: 500px;
+            border: 2px solid #ddd;
         }
         #result {
             width: 100%;
             height: 200px;
-            padding: 12px;
+            padding: 10px;
             margin-top: 15px;
-            border: 2px solid #ddd;
-            border-radius: 6px;
+            border: 1px solid #ccc;
             resize: vertical;
-            font-size: 16px;
         }
-        .tooltip {
-            position: fixed;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 4px;
+        .button-group {
+            margin: 10px 0;
+        }
+        .loading {
             display: none;
-            z-index: 1001;
+            color: #666;
+            margin: 10px 0;
         }
     </style>
 </head>
 <body>
-<h2>📷 智能拍照OCR</h2>
-
-<div id="previewContainer">
+    <h2>手机拍照OCR</h2>
+    
+    <!-- 视频预览 -->
     <video id="videoPreview" autoplay playsinline></video>
-    <canvas id="canvasPreview"></canvas>
-    <div class="overlay" id="overlay">识别中...</div>
-</div>
+    
+    <!-- 控制按钮 -->
+    <div class="button-group">
+        <button id="startCamera">打开摄像头</button>
+        <button id="captureBtn" disabled>拍照识别</button>
+        <button id="copyBtn" disabled>复制结果</button>
+    </div>
+    
+    <!-- 加载提示 -->
+    <div class="loading" id="loading">识别中...</div>
+    
+    <!-- 识别结果 -->
+    <textarea 
+        id="result" 
+        placeholder="识别结果将显示在这里..."
+        readonly
+    ></textarea>
 
-<div class="button-group">
-    <button id="startCamera">打开摄像头</button>
-    <button id="captureBtn" disabled>拍照识别</button>
-    <button id="resetBtn" disabled>重新框选</button>
-    <button id="cancelSelection" disabled>取消</button>
-    <button id="copyBtn" disabled>复制结果</button>
-</div>
+    <script>
+        const video = document.getElementById('videoPreview');
+        const captureBtn = document.getElementById('captureBtn');
+        const startCameraBtn = document.getElementById('startCamera');
+        const copyBtn = document.getElementById('copyBtn');
+        const loading = document.getElementById('loading');
+        let mediaStream = null;
 
-<textarea id="result" placeholder="识别结果将显示在这里..."></textarea>
+        // 启动摄像头
+        startCameraBtn.addEventListener('click', async () => {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" } // 优先使用后置摄像头
+                });
+                video.srcObject = mediaStream;
+                captureBtn.disabled = false;
+            } catch (error) {
+                alert('请允许摄像头权限\n错误信息: ' + error.message);
+            }
+        });
 
-<div class="tooltip" id="tooltip"></div>
+        // 拍照识别
+        captureBtn.addEventListener('click', async () => {
+            if (!mediaStream) return;
+            
+            loading.style.display = 'block';
+            captureBtn.disabled = true;
 
-<script>
-    const video = document.getElementById('videoPreview');
-    const canvasPreview = document.getElementById('canvasPreview');
-    const overlay = document.getElementById('overlay');
-    const tooltip = document.getElementById('tooltip');
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
 
-    let mediaStream = null;
-    let isSelecting = false;
-    let startX = 0, startY = 0;
-    let selectionBox = null;
+            try {
+                canvas.toBlob(async (blob) => {
+                    const { data: { text } } = await Tesseract.recognize(
+                        new File([blob], 'capture.jpg'),
+                        'eng+chi_sim',
+                        { logger: m => console.log(m) }
+                    );
+                    document.getElementById('result').value = text;
+                    copyBtn.disabled = false;
+                }, 'image/jpeg');
+            } catch (error) {
+                alert('识别失败: ' + error.message);
+            } finally {
+                loading.style.display = 'none';
+                captureBtn.disabled = false;
+            }
+        });
 
-    // 摄像头控制
-    document.getElementById('startCamera').addEventListener('click', async () => {
-        try {
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment" }
-            });
-            video.srcObject = mediaStream;
-            enableControls(true);
-            showTooltip("摄像头已开启");
-        } catch (error) {
-            alert('摄像头权限被拒绝: ' + error.message);
-        }
-    });
+        // 复制结果
+        copyBtn.addEventListener('click', () => {
+            const result = document.getElementById('result');
+            result.select();
+            try {
+                navigator.clipboard.writeText(result.value);
+                alert('已复制到剪贴板');
+            } catch (error) {
+                alert('复制失败，请手动选择文本');
+            }
+        });
 
-    // 拍照功能
-    document.getElementById('captureBtn').addEventListener('click', () => {
-        canvasPreview.width = video.videoWidth;
-        canvasPreview.height = video.videoHeight;
-        const ctx = canvasPreview.getContext('2d');
-        ctx.drawImage(video, 0, 0);
-
-        video.style.display = 'none';
-        canvasPreview.style.display = 'block';
-        enableControls(false);
-        initAreaSelection();
-    });
-
-    // 区域选择功能
-    function initAreaSelection() {
-        isSelecting = true;
-        canvasPreview.style.cursor = 'crosshair';
-
-        // 桌面端事件
-        canvasPreview.addEventListener('mousedown', startSelection);
-        canvasPreview.addEventListener('mousemove', drawSelection);
-        canvasPreview.addEventListener('mouseup', endSelection);
-
-        // 移动端事件
-        canvasPreview.addEventListener('touchstart', touchStart);
-        canvasPreview.addEventListener('touchmove', touchMove);
-        canvasPreview.addEventListener('touchend', touchEnd);
-
-        document.getElementById('resetBtn').disabled = false;
-        document.getElementById('cancelSelection').disabled = false;
-    }
-
-    function startSelection(e) {
-        e.preventDefault();
-        const rect = canvasPreview.getBoundingClientRect();
-        startX = (e.clientX || e.touches[0].clientX) - rect.left;
-        startY = (e.clientY || e.touches[0].clientY) - rect.top;
-
-        selectionBox = document.createElement('div');
-        selectionBox.className = 'selection-box';
-        previewContainer.appendChild(selectionBox);
-    }
-
-    function drawSelection(e) {
-        if (!isSelecting || !selectionBox) return;
-
-        const rect = canvasPreview.getBoundingClientRect();
-        const currentX = (e.clientX || e.touches[0].clientX) - rect.left;
-        const currentY = (e.clientY || e.touches[0].clientY) - rect.top;
-
-        const width = currentX - startX;
-        const height = currentY - startY;
-
-        selectionBox.style.left = Math.min(startX, currentX) + 'px';
-        selectionBox.style.top = Math.min(startY, currentY) + 'px';
-        selectionBox.style.width = Math.abs(width) + 'px';
-        selectionBox.style.style.height = Math.abs(height) + 'px';
-    }
-
-    async function endSelection() {
-        isSelecting = false;
-        canvasPreview.style.cursor = 'default';
-
-        if (!selectionBox) return;
-
-        const rect = selectionBox.getBoundingClientRect();
-        const canvasRect = canvasPreview.getBoundingClientRect();
-
-        const x = rect.left - canvasRect.left;
-        const y = rect.top - canvasRect.top;
-        const width = rect.width;
-        const height = rect.height;
-
-        selectionBox.remove();
-        selectionBox = null;
-
-        if (width > 10 && height > 10) {
-            await recognizeArea(x, y, width, height);
-        }
-
-        resetPreview();
-    }
-
-    // OCR识别
-    async function recognizeArea(x, y, w, h) {
-        overlay.style.display = 'flex';
-
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = w;
-        tempCanvas.height = h;
-        const ctx = tempCanvas.getContext('2d');
-        ctx.drawImage(canvasPreview, x, y, w, h, 0, 0, w, h);
-
-        try {
-            const { data: { text } } = await Tesseract.recognize(
-                tempCanvas,
-                'chi_sim+eng',
-                { logger: m => console.log(m.status) }
-            );
-            document.getElementById('result').value = text.trim();
-            document.getElementById('copyBtn').disabled = false;
-        } catch (error) {
-            alert('识别错误: ' + error.message);
-        } finally {
-            overlay.style.display = 'none';
-        }
-    }
-
-    // 辅助功能
-    function enableControls(isCameraOn) {
-        document.getElementById('captureBtn').disabled = !isCameraOn;
-        document.getElementById('resetBtn').disabled = true;
-        document.getElementById('cancelSelection').disabled = true;
-    }
-
-    function resetPreview() {
-        canvasPreview.style.display = 'none';
-        video.style.display = 'block';
-        enableControls(true);
-    }
-
-    function showTooltip(text) {
-        tooltip.style.display = 'block';
-        tooltip.textContent = text;
-        setTimeout(() => tooltip.style.display = 'none', 2000);
-    }
-
-    // 按钮事件
-    document.getElementById('cancelSelection').addEventListener('click', resetPreview);
-    document.getElementById('resetBtn').addEventListener('click', () => {
-        previewContainer.querySelectorAll('.selection-box').forEach(box => box.remove());
-        initAreaSelection();
-    });
-    document.getElementById('copyBtn').addEventListener('click', () => {
-        navigator.clipboard.writeText(result.value);
-        showTooltip("已复制到剪贴板");
-    });
-
-    // 清理资源
-    window.addEventListener('beforeunload', () => {
-        if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-    });
-
-    // 移动端事件适配
-    function touchStart(e) {
-        startSelection(e.touches[0]);
-    }
-    function touchMove(e) {
-        drawSelection(e.touches[0]);
-    }
-    function touchEnd(e) {
-        endSelection();
-    }
-</script>
+        // 关闭摄像头
+        window.addEventListener('beforeunload', () => {
+            if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+        });
+    </script>
 </body>
 </html>
