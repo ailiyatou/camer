@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OCR 拍照识别</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background-color: #f4f4f9;
+    }
+    video, canvas {
+      width: 320px;
+      height: 240px;
+      border: 2px solid #ccc;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    #result {
+      margin-top: 20px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      width: 320px;
+      min-height: 100px;
+      background-color: #fff;
+      border-radius: 4px;
+      overflow-y: auto;
+      font-size: 14px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+
+  <video id="camera" autoplay></video>
+  <canvas id="canvas" style="display: none;"></canvas>
+  <button onclick="capture()">拍照并识别</button>
+  <div id="result">OCR 结果将显示在这里...</div>
+
+  <!-- 引入 Tesseract.js -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5"></script>
+
+  <script>
+    // 获取摄像头权限
+    const video = document.getElementById('camera');
+    const canvas = document.getElementById('canvas');
+    const result = document.getElementById('result');
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+      } catch (error) {
+        console.error('获取摄像头失败:', error);
+        result.textContent = '无法打开摄像头，请检查权限或设备。';
+      }
+    }
+
+    // 拍照并进行 OCR 识别
+    async function capture() {
+      // 将当前视频帧绘制到 canvas 上
+      const context = canvas.getContext('2d');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // 将 canvas 转为图片数据
+      const imageData = canvas.toDataURL('image/png');
+
+      // 使用 Tesseract.js 进行 OCR 识别
+      result.textContent = '正在识别中...';
+
+      try {
+        const { data: { text } } = await Tesseract.recognize(
+          imageData,           // 图像数据
+          'eng',               // 语言（中文用 'chi_sim'）
+          {
+            logger: m => console.log(m) // 打印识别进度（可选）
+          }
+        );
+
+        result.textContent = text || '未识别到有效文字。';
+      } catch (error) {
+        console.error('OCR 识别失败:', error);
+        result.textContent = '识别失败，请重试。';
+      }
+    }
+
+    // 启动摄像头
+    startCamera();
+  </script>
+
+</body>
+</html>
