@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>微型OCR识别器</title>
+  <title>微距OCR识别器</title>
   <script src="https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
   <style>
     /* 移动端适配样式 */
@@ -12,10 +12,15 @@
       padding: 10px;
       font-family: Arial;
       position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding-top: 256px; /* 控制整体下移位置 */
     }
     button {
       padding: 8px 15px;
-      font-size: 14px;
+      font-size: 20px;
       margin: 3px;
       background: #007bff;
       color: white;
@@ -85,7 +90,7 @@
   </style>
 </head>
 <body>
-<h2 style="font-size: 16px; margin: 5px 0;">微型OCR</h2>
+<h2 style="font-size: 16px; margin: 5px 0;">微距OCR</h2>
 
 <!-- 视频预览 -->
 <video id="videoPreview" autoplay playsinline></video>
@@ -97,6 +102,9 @@
 <div class="button-group">
   <button id="startCamera">开启摄像头</button>
   <button id="captureBtn" disabled>拍照识别</button>
+
+</div>
+<div class="button-group">
   <button id="resetBtn" disabled>重置</button>
   <button id="copyBtn" disabled>复制结果</button>
 </div>
@@ -124,16 +132,40 @@
   const overlay = document.getElementById('overlay');
   let mediaStream = null;
 
+  // 获取微距摄像头
+  async function getMacroCamera() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+    // 优先选择后置摄像头
+    const rearCamera = videoDevices.find(device =>
+            device.label.toLowerCase().includes('back') ||
+            device.label.toLowerCase().includes('rear')
+    );
+
+    return rearCamera ? rearCamera.deviceId : null;
+  }
+
   // 启动摄像头
   startCameraBtn.addEventListener('click', async () => {
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({
+      const macroCameraId = await getMacroCamera();
+      if (!macroCameraId) {
+        alert('未找到微距摄像头，将使用默认摄像头');
+      }
+
+      const constraints = {
         video: {
-          facingMode: "environment",
-          width: { ideal: 640 },  // 提高图像质量
-          height: { ideal: 480 }
+          deviceId: macroCameraId ? { exact: macroCameraId } : undefined,
+          facingMode: macroCameraId ? undefined : { ideal: 'environment' },
+          width: { ideal: 1280 },  // 提高分辨率
+          height: { ideal: 720 },
+          focusMode: 'continuous', // 启用连续对焦
+          advanced: [{ focusMode: 'manual', focusDistance: 0.1 }] // 微距模式
         }
-      });
+      };
+
+      mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject = mediaStream;
       captureBtn.disabled = false;
       startCameraBtn.textContent = '摄像头已开启';
