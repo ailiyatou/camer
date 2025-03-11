@@ -1,111 +1,139 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OCR 拍照识别</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      background-color: #f4f4f9;
-    }
-    video, canvas {
-      width: 320px;
-      height: 240px;
-      border: 2px solid #ccc;
-      border-radius: 8px;
-      margin-bottom: 10px;
-    }
-    button {
-      padding: 10px 20px;
-      background-color: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 16px;
-    }
-    button:hover {
-      background-color: #45a049;
-    }
-    #result {
-      margin-top: 20px;
-      padding: 10px;
-      border: 1px solid #ddd;
-      width: 320px;
-      min-height: 100px;
-      background-color: #fff;
-      border-radius: 4px;
-      overflow-y: auto;
-      font-size: 14px;
-      white-space: pre-wrap;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>手机拍照OCR</title>
+    <script src="https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
+    <style>
+        /* 移动端适配样式 */
+        body {
+            margin: 0;
+            padding: 15px;
+            font-family: Arial;
+        }
+        button {
+            padding: 12px 20px;
+            font-size: 16px;
+            margin: 5px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        #videoPreview {
+            width: 100%;
+            max-width: 500px;
+            border: 2px solid #ddd;
+        }
+        #result {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            margin-top: 15px;
+            border: 1px solid #ccc;
+            resize: vertical;
+        }
+        .button-group {
+            margin: 10px 0;
+        }
+        .loading {
+            display: none;
+            color: #666;
+            margin: 10px 0;
+        }
+    </style>
 </head>
 <body>
+    <h2>手机拍照OCR</h2>
+    
+    <!-- 视频预览 -->
+    <video id="videoPreview" autoplay playsinline></video>
+    
+    <!-- 控制按钮 -->
+    <div class="button-group">
+        <button id="startCamera">打开摄像头</button>
+        <button id="captureBtn" disabled>拍照识别</button>
+        <button id="copyBtn" disabled>复制结果</button>
+    </div>
+    
+    <!-- 加载提示 -->
+    <div class="loading" id="loading">识别中...</div>
+    
+    <!-- 识别结果 -->
+    <textarea 
+        id="result" 
+        placeholder="识别结果将显示在这里..."
+        readonly
+    ></textarea>
 
-  <video id="camera" autoplay></video>
-  <canvas id="canvas" style="display: none;"></canvas>
-  <button onclick="capture()">拍照并识别</button>
-  <div id="result">OCR 结果将显示在这里...</div>
+    <script>
+        const video = document.getElementById('videoPreview');
+        const captureBtn = document.getElementById('captureBtn');
+        const startCameraBtn = document.getElementById('startCamera');
+        const copyBtn = document.getElementById('copyBtn');
+        const loading = document.getElementById('loading');
+        let mediaStream = null;
 
-  <!-- 引入 Tesseract.js -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5"></script>
+        // 启动摄像头
+        startCameraBtn.addEventListener('click', async () => {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" } // 优先使用后置摄像头
+                });
+                video.srcObject = mediaStream;
+                captureBtn.disabled = false;
+            } catch (error) {
+                alert('请允许摄像头权限\n错误信息: ' + error.message);
+            }
+        });
 
-  <script>
-    // 获取摄像头权限
-    const video = document.getElementById('camera');
-    const canvas = document.getElementById('canvas');
-    const result = document.getElementById('result');
+        // 拍照识别
+        captureBtn.addEventListener('click', async () => {
+            if (!mediaStream) return;
+            
+            loading.style.display = 'block';
+            captureBtn.disabled = true;
 
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
-      } catch (error) {
-        console.error('获取摄像头失败:', error);
-        result.textContent = '无法打开摄像头，请检查权限或设备。';
-      }
-    }
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
 
-    // 拍照并进行 OCR 识别
-    async function capture() {
-      // 将当前视频帧绘制到 canvas 上
-      const context = canvas.getContext('2d');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            try {
+                canvas.toBlob(async (blob) => {
+                    const { data: { text } } = await Tesseract.recognize(
+                        new File([blob], 'capture.jpg'),
+                        'eng+chi_sim',
+                        { logger: m => console.log(m) }
+                    );
+                    document.getElementById('result').value = text;
+                    copyBtn.disabled = false;
+                }, 'image/jpeg');
+            } catch (error) {
+                alert('识别失败: ' + error.message);
+            } finally {
+                loading.style.display = 'none';
+                captureBtn.disabled = false;
+            }
+        });
 
-      // 将 canvas 转为图片数据
-      const imageData = canvas.toDataURL('image/png');
+        // 复制结果
+        copyBtn.addEventListener('click', () => {
+            const result = document.getElementById('result');
+            result.select();
+            try {
+                navigator.clipboard.writeText(result.value);
+                alert('已复制到剪贴板');
+            } catch (error) {
+                alert('复制失败，请手动选择文本');
+            }
+        });
 
-      // 使用 Tesseract.js 进行 OCR 识别
-      result.textContent = '正在识别中...';
-
-      try {
-        const { data: { text } } = await Tesseract.recognize(
-          imageData,           // 图像数据
-          'eng',               // 语言（中文用 'chi_sim'）
-          {
-            logger: m => console.log(m) // 打印识别进度（可选）
-          }
-        );
-
-        result.textContent = text || '未识别到有效文字。';
-      } catch (error) {
-        console.error('OCR 识别失败:', error);
-        result.textContent = '识别失败，请重试。';
-      }
-    }
-
-    // 启动摄像头
-    startCamera();
-  </script>
-
+        // 关闭摄像头
+        window.addEventListener('beforeunload', () => {
+            if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+        });
+    </script>
 </body>
 </html>
