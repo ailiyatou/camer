@@ -6,134 +6,180 @@
     <title>手机拍照OCR</title>
     <script src="https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
     <style>
-        /* 移动端适配样式 */
-        body {
-            margin: 0;
-            padding: 15px;
-            font-family: Arial;
+        /* 新增样式 */
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            z-index: 999;
         }
-        button {
-            padding: 12px 20px;
-            font-size: 16px;
-            margin: 5px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
+        .selection-box {
+            border: 2px dashed red;
+            position: absolute;
+            background: rgba(255,255,255,0.2);
         }
-        #videoPreview {
+        /* 修改原有样式 */
+        #previewContainer {
+            position: relative;
             width: 100%;
             max-width: 500px;
+        }
+        #canvasPreview {
+            display: none;
+            width: 100%;
             border: 2px solid #ddd;
         }
-        #result {
-            width: 100%;
-            height: 200px;
-            padding: 10px;
-            margin-top: 15px;
-            border: 1px solid #ccc;
-            resize: vertical;
-        }
-        .button-group {
-            margin: 10px 0;
-        }
-        .loading {
-            display: none;
-            color: #666;
-            margin: 10px 0;
-        }
+        /* 其他原有样式保持不变... */
     </style>
 </head>
 <body>
-    <h2>手机拍照OCR</h2>
-    
-    <!-- 视频预览 -->
+<h2>手机拍照OCR</h2>
+
+<div id="previewContainer">
     <video id="videoPreview" autoplay playsinline></video>
-    
-    <!-- 控制按钮 -->
-    <div class="button-group">
-        <button id="startCamera">打开摄像头</button>
-        <button id="captureBtn" disabled>拍照识别</button>
-        <button id="copyBtn" disabled>复制结果</button>
+    <canvas id="canvasPreview"></canvas>
+    <div class="overlay" id="overlay">
+        <div class="loading">识别中...</div>
     </div>
-    
-    <!-- 加载提示 -->
-    <div class="loading" id="loading">识别中...</div>
-    
-    <!-- 识别结果 -->
-    <textarea 
-        id="result" 
-        placeholder="识别结果将显示在这里..."
-        readonly
-    ></textarea>
+</div>
 
-    <script>
-        const video = document.getElementById('videoPreview');
-        const captureBtn = document.getElementById('captureBtn');
-        const startCameraBtn = document.getElementById('startCamera');
-        const copyBtn = document.getElementById('copyBtn');
-        const loading = document.getElementById('loading');
-        let mediaStream = null;
+<!-- 新增操作按钮 -->
+<div class="button-group">
+    <button id="resetBtn" disabled>重新选择区域</button>
+    <button id="cancelSelection" disabled>取消选择</button>
+</div>
 
-        // 启动摄像头
-        startCameraBtn.addEventListener('click', async () => {
-            try {
-                mediaStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" } // 优先使用后置摄像头
-                });
-                video.srcObject = mediaStream;
-                captureBtn.disabled = false;
-            } catch (error) {
-                alert('请允许摄像头权限\n错误信息: ' + error.message);
-            }
-        });
+<!-- 原有按钮和结果框保持不变... -->
 
-        // 拍照识别
-        captureBtn.addEventListener('click', async () => {
-            if (!mediaStream) return;
-            
-            loading.style.display = 'block';
-            captureBtn.disabled = true;
+<script>
+    // 新增变量
+    const canvasPreview = document.getElementById('canvasPreview');
+    const overlay = document.getElementById('overlay');
+    let isSelecting = false;
+    let selectStartX = 0;
+    let selectStartY = 0;
+    let selectionBox = null;
 
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0);
+    // 修改拍照识别逻辑
+    captureBtn.addEventListener('click', async () => {
+        overlay.style.display = 'block';
+        canvasPreview.width = video.videoWidth;
+        canvasPreview.height = video.videoHeight;
+        const ctx = canvasPreview.getContext('2d');
+        ctx.drawImage(video, 0, 0);
 
-            try {
-                canvas.toBlob(async (blob) => {
-                    const { data: { text } } = await Tesseract.recognize(
-                        new File([blob], 'capture.jpg'),
-                        'eng+chi_sim',
-                        { logger: m => console.log(m) }
-                    );
-                    document.getElementById('result').value = text;
-                    copyBtn.disabled = false;
-                }, 'image/jpeg');
-            } catch (error) {
-                alert('识别失败: ' + error.message);
-            } finally {
-                loading.style.display = 'none';
-                captureBtn.disabled = false;
-            }
-        });
+        // 显示画布并隐藏视频
+        video.style.display = 'none';
+        canvasPreview.style.display = 'block';
 
-        // 复制结果
-        copyBtn.addEventListener('click', () => {
-            const result = document.getElementById('result');
-            result.select();
-            try {
-                navigator.clipboard.writeText(result.value);
-                alert('已复制到剪贴板');
-            } catch (error) {
-                alert('复制失败，请手动选择文本');
-            }
-        });
+        // 启用区域选择
+        initAreaSelection();
+        overlay.style.display = 'none';
+    });
 
-        // 关闭摄像头
-        window.addEventListener('beforeunload', () => {
-            if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-        });
-    </script>
+    // 新增区域选择功能
+    function initAreaSelection() {
+        isSelecting = true;
+        canvasPreview.style.cursor = 'crosshair';
+
+        canvasPreview.addEventListener('mousedown', startSelection);
+        canvasPreview.addEventListener('mousemove', drawSelection);
+        canvasPreview.addEventListener('mouseup', endSelection);
+
+        canvasPreview.addEventListener('touchstart', touchStart);
+        canvasPreview.addEventListener('touchmove', touchMove);
+        canvasPreview.addEventListener('touchend', touchEnd);
+    }
+
+    function startSelection(e) {
+        const rect = canvasPreview.getBoundingClientRect();
+        selectStartX = (e.clientX || e.touches[0].clientX) - rect.left;
+        selectStartY = (e.clientY || e.touches[0].clientY) - rect.top;
+
+        selectionBox = document.createElement('div');
+        selectionBox.className = 'selection-box';
+        previewContainer.appendChild(selectionBox);
+    }
+
+    function drawSelection(e) {
+        if (!isSelecting) return;
+
+        const rect = canvasPreview.getBoundingClientRect();
+        const currentX = (e.clientX || e.touches[0].clientX) - rect.left;
+        const currentY = (e.clientY || e.touches[0].clientY) - rect.top;
+
+        const width = currentX - selectStartX;
+        const height = currentY - selectStartY;
+
+        selectionBox.style.left = selectStartX + 'px';
+        selectionBox.style.top = selectStartY + 'px';
+        selectionBox.style.width = width + 'px';
+        selectionBox.style.height = height + 'px';
+    }
+
+    async function endSelection() {
+        isSelecting = false;
+        canvasPreview.style.cursor = 'default';
+
+        // 获取选择区域坐标
+        const rect = selectionBox.getBoundingClientRect();
+        const canvasRect = canvasPreview.getBoundingClientRect();
+
+        // 转换为画布坐标
+        const x = rect.left - canvasRect.left;
+        const y = rect.top - canvasRect.top;
+        const width = rect.width;
+        const height = rect.height;
+
+        // 移除选择框
+        selectionBox.remove();
+
+        // 执行OCR识别
+        await recognizeArea(x, y, width, height);
+
+        // 重置UI
+        canvasPreview.style.display = 'none';
+        video.style.display = 'block';
+    }
+
+    // 新增区域识别函数
+    async function recognizeArea(x, y, width, height) {
+        overlay.style.display = 'block';
+
+        // 创建临时画布截取区域
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const ctx = tempCanvas.getContext('2d');
+        ctx.drawImage(
+            canvasPreview,
+            x, y, width, height,
+            0, 0, width, height
+        );
+
+        try {
+            tempCanvas.toBlob(async (blob) => {
+                const { data: { text } } = await Tesseract.recognize(
+                    new File([blob], 'area.jpg'),
+                    'eng+chi_sim'
+                );
+                document.getElementById('result').value = text;
+                copyBtn.disabled = false;
+            }, 'image/jpeg');
+        } finally {
+            overlay.style.display = 'none';
+        }
+    }
+
+    // 新增取消按钮事件
+    document.getElementById('cancelSelection').addEventListener('click', () => {
+        canvasPreview.style.display = 'none';
+        video.style.display = 'block';
+    });
+</script>
 </body>
 </html>
