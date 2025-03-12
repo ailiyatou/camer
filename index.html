@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>微距OCR识别器</title>
+  <title>微型OCR识别器</title>
+  <script src="https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
   <style>
     /* 移动端适配样式 */
     body {
@@ -19,7 +20,7 @@
     }
     button {
       padding: 8px 15px;
-      font-size: 20px;
+      font-size: 14px;
       margin: 3px;
       background: #007bff;
       color: white;
@@ -37,6 +38,7 @@
       border: 5px solid #ddd;
       object-fit: cover;
       margin: 5px 0;
+
     }
     #capturedImage {
       width: 235px;
@@ -88,7 +90,7 @@
   </style>
 </head>
 <body>
-<h2 style="font-size: 16px; margin: 5px 0;">微距OCR</h2>
+<h2 style="font-size: 16px; margin: 5px 0;">微型OCR</h2>
 
 <!-- 视频预览 -->
 <video id="videoPreview" autoplay playsinline></video>
@@ -100,8 +102,6 @@
 <div class="button-group">
   <button id="startCamera">开启摄像头</button>
   <button id="captureBtn" disabled>拍照识别</button>
-</div>
-<div class="button-group">
   <button id="resetBtn" disabled>重置</button>
   <button id="copyBtn" disabled>复制结果</button>
 </div>
@@ -120,46 +120,6 @@
 ></textarea>
 
 <script>
-  // 百度OCR配置
-  const API_KEY = 'tHb9oikV9eC9P7shXn0TN1N4';
-  const SECRET_KEY = 'jj597OSwfkhdTB8sVBHTgE6oT54Tqt5g';
-  const ACCESS_TOKEN_URL = `https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=${API_KEY}&client_secret=${SECRET_KEY}`;
-
-  // 获取Access Token
-  let accessTokenCache = null;
-  async function getAccessToken() {
-    if(accessTokenCache) return accessTokenCache;
-    
-    const response = await fetch(ACCESS_TOKEN_URL, { method: 'POST' });
-    const data = await response.json();
-    accessTokenCache = data.access_token;
-    return accessTokenCache;
-  }
-
-  // 百度OCR识别函数
-  async function recognizeImage(imageBase64) {
-    try {
-      const accessToken = await getAccessToken();
-      const url = `https://aip.baidubce.com/rest/2.0/ocr/v1/general_basic?access_token=${accessToken}`;
-      
-      const formData = new FormData();
-      formData.append('image', imageBase64.split(',')[1]);
-      formData.append('language_type', 'CHN_ENG');
-
-      const response = await fetch(url, {
-        method: 'POST',
-        body: formData
-      });
-
-      const result = await response.json();
-      return result.words_result?.map(item => item.words).join('\n') || '未识别到文字';
-    } catch (error) {
-      console.error('OCR Error:', error);
-      return '识别失败，请重试';
-    }
-  }
-
-  // 以下是原有逻辑（仅修改拍照识别部分）
   const video = document.getElementById('videoPreview');
   const capturedImage = document.getElementById('capturedImage');
   const captureBtn = document.getElementById('captureBtn');
@@ -169,40 +129,16 @@
   const overlay = document.getElementById('overlay');
   let mediaStream = null;
 
-  // 获取微距摄像头
-  async function getMacroCamera() {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter(device => device.kind === 'videoinput');
-
-    // 优先选择后置摄像头
-    const rearCamera = videoDevices.find(device =>
-            device.label.toLowerCase().includes('back') ||
-            device.label.toLowerCase().includes('rear')
-    );
-
-    return rearCamera ? rearCamera.deviceId : null;
-  }
-
   // 启动摄像头
   startCameraBtn.addEventListener('click', async () => {
     try {
-      const macroCameraId = await getMacroCamera();
-      if (!macroCameraId) {
-        alert('未找到微距摄像头，将使用默认摄像头');
-      }
-
-      const constraints = {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          deviceId: macroCameraId ? { exact: macroCameraId } : undefined,
-          facingMode: macroCameraId ? undefined : { ideal: 'environment' },
-          width: { ideal: 1280 },  // 提高分辨率
-          height: { ideal: 720 },
-          focusMode: 'continuous', // 启用连续对焦
-          advanced: [{ focusMode: 'manual', focusDistance: 0.1 }] // 微距模式
+          facingMode: "environment",
+          width: { ideal: 640 },  // 提高图像质量
+          height: { ideal: 480 }
         }
-      };
-
-      mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      });
       video.srcObject = mediaStream;
       captureBtn.disabled = false;
       startCameraBtn.textContent = '摄像头已开启';
@@ -211,28 +147,40 @@
     }
   });
 
-  // 修改后的拍照识别逻辑
+  // 拍照识别
   captureBtn.addEventListener('click', async () => {
     if (!mediaStream) return;
 
+    // 显示遮罩
     overlay.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden'; // 禁止滚动
 
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0);
 
+    // 显示拍照后的图像
     capturedImage.src = canvas.toDataURL('image/jpeg', 0.9);
     capturedImage.style.display = 'block';
-    video.style.display = 'none';
+    video.style.display = 'none'; // 隐藏摄像头预览
 
     try {
-      const imageBase64 = canvas.toDataURL('image/jpeg', 0.9);
-      const text = await recognizeImage(imageBase64);
-      document.getElementById('result').value = text;
-      copyBtn.disabled = false;
-      resetBtn.disabled = false;
+      canvas.toBlob(async (blob) => {
+        const { data: { text } } = await Tesseract.recognize(
+                new File([blob], 'capture.jpg'),
+                'eng+chi_sim',
+                {
+                  logger: m => console.log(m),
+                  // 优化识别参数
+                  tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+                  tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,?!@#$%&*()-_=+'
+                }
+        );
+        document.getElementById('result').value = text;
+        copyBtn.disabled = false;
+        resetBtn.disabled = false; // 启用重置按钮
+      }, 'image/jpeg', 0.9); // 调整图片质量
     } catch (error) {
       alert('识别失败: ' + error.message);
     } finally {
@@ -243,14 +191,17 @@
 
   // 重置功能
   resetBtn.addEventListener('click', () => {
+    // 清除取景框
     capturedImage.src = '';
     capturedImage.style.display = 'none';
-    video.style.display = 'block';
+    video.style.display = 'block'; // 重新显示摄像头预览
 
+    // 清除识别结果
     document.getElementById('result').value = '';
     copyBtn.disabled = true;
     resetBtn.disabled = true;
 
+    // 重新启用摄像头
     if (mediaStream) {
       mediaStream.getTracks().forEach(track => track.stop());
       mediaStream = null;
