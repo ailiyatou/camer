@@ -5,7 +5,86 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>微距OCR识别器</title>
   <style>
-    /* 样式保持不变 */
+    /* 移动端适配样式 */
+    body {
+      margin: 0;
+      padding: 10px;
+      font-family: Arial;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding-top: 256px; /* 控制整体下移位置 */
+    }
+    button {
+      padding: 8px 15px;
+      font-size: 20px;
+      margin: 3px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      transition: opacity 0.3s;
+    }
+    button:disabled {
+      opacity: 0.6;
+      background: #666;
+    }
+    #videoPreview {
+      width: 235px;
+      height: 40px;
+      border: 5px solid #ddd;
+      object-fit: cover;
+      margin: 5px 0;
+    }
+    #capturedImage {
+      width: 235px;
+      height: 40px;
+      border: 5px solid #ddd;
+      object-fit: cover;
+      margin: 5px 0;
+      display: none; /* 初始隐藏 */
+    }
+    #result {
+      width: 100%;
+      height: 120px;
+      padding: 8px;
+      margin-top: 10px;
+      border: 1px solid #ccc;
+      resize: vertical;
+      font-size: 12px;
+    }
+    .button-group {
+      margin: 8px 0;
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    .loading {
+      display: none;
+      color: #666;
+      margin: 10px 0;
+    }
+    /* 新增遮罩样式 */
+    .overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.7);
+      z-index: 999;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+    .overlay-text {
+      color: white;
+      margin-top: 10px;
+      font-size: 16px;
+    }
   </style>
 </head>
 <body>
@@ -21,6 +100,8 @@
 <div class="button-group">
   <button id="startCamera">开启摄像头</button>
   <button id="captureBtn" disabled>拍照识别</button>
+</div>
+<div class="button-group">
   <button id="resetBtn" disabled>重置</button>
   <button id="copyBtn" disabled>复制结果</button>
 </div>
@@ -39,6 +120,46 @@
 ></textarea>
 
 <script>
+  // 百度OCR配置
+  const API_KEY = 'tHb9oikV9eC9P7shXn0TN1N4';
+  const SECRET_KEY = 'jj597OSwfkhdTB8sVBHTgE6oT54Tqt5g';
+  const ACCESS_TOKEN_URL = `https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=${API_KEY}&client_secret=${SECRET_KEY}`;
+
+  // 获取Access Token
+  let accessTokenCache = null;
+  async function getAccessToken() {
+    if(accessTokenCache) return accessTokenCache;
+    
+    const response = await fetch(ACCESS_TOKEN_URL, { method: 'POST' });
+    const data = await response.json();
+    accessTokenCache = data.access_token;
+    return accessTokenCache;
+  }
+
+  // 百度OCR识别函数
+  async function recognizeImage(imageBase64) {
+    try {
+      const accessToken = await getAccessToken();
+      const url = `https://aip.baidubce.com/rest/2.0/ocr/v1/general_basic?access_token=${accessToken}`;
+      
+      const formData = new FormData();
+      formData.append('image', imageBase64.split(',')[1]);
+      formData.append('language_type', 'CHN_ENG');
+
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData
+      });
+
+      const result = await response.json();
+      return result.words_result?.map(item => item.words).join('\n') || '未识别到文字';
+    } catch (error) {
+      console.error('OCR Error:', error);
+      return '识别失败，请重试';
+    }
+  }
+
+  // 以下是原有逻辑（仅修改拍照识别部分）
   const video = document.getElementById('videoPreview');
   const capturedImage = document.getElementById('capturedImage');
   const captureBtn = document.getElementById('captureBtn');
@@ -47,40 +168,6 @@
   const copyBtn = document.getElementById('copyBtn');
   const overlay = document.getElementById('overlay');
   let mediaStream = null;
-
-  // 百度 OCR 的 API Key 和 Secret Key
-  const API_KEY = 'tHb9oikV9eC9P7shXn0TN1N4';
-  const SECRET_KEY = 'jj597OSwfkhdTB8sVBHTgE6oT54Tqt5g';
-  const ACCESS_TOKEN_URL = `https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=${API_KEY}&client_secret=${SECRET_KEY}`;
-
-  // 获取百度 OCR 的 Access Token
-  async function getAccessToken() {
-    const response = await fetch(ACCESS_TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-    const data = await response.json();
-    return data.access_token;
-  }
-
-  // 调用百度 OCR 识别图片
-  async function recognizeImageWithBaiduOCR(imageBase64) {
-    const accessToken = await getAccessToken();
-    const url = `https://aip.baidubce.com/rest/2.0/ocr/v1/general_basic?access_token=${accessToken}`;
-
-    const formData = new FormData();
-    formData.append('image', imageBase64.split(',')[1]); // 去掉 Base64 前缀
-    formData.append('language_type', 'CHN_ENG'); // 支持中英文
-
-    const response = await fetch(url, {
-      method: 'POST',
-      body: formData,
-    });
-    const result = await response.json();
-    return result.words_result.map(item => item.words).join('\n');
-  }
 
   // 获取微距摄像头
   async function getMacroCamera() {
@@ -124,30 +211,28 @@
     }
   });
 
-  // 拍照识别
+  // 修改后的拍照识别逻辑
   captureBtn.addEventListener('click', async () => {
     if (!mediaStream) return;
 
-    // 显示遮罩
     overlay.style.display = 'flex';
-    document.body.style.overflow = 'hidden'; // 禁止滚动
+    document.body.style.overflow = 'hidden';
 
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0);
 
-    // 显示拍照后的图像
     capturedImage.src = canvas.toDataURL('image/jpeg', 0.9);
     capturedImage.style.display = 'block';
-    video.style.display = 'none'; // 隐藏摄像头预览
+    video.style.display = 'none';
 
     try {
       const imageBase64 = canvas.toDataURL('image/jpeg', 0.9);
-      const text = await recognizeImageWithBaiduOCR(imageBase64);
+      const text = await recognizeImage(imageBase64);
       document.getElementById('result').value = text;
       copyBtn.disabled = false;
-      resetBtn.disabled = false; // 启用重置按钮
+      resetBtn.disabled = false;
     } catch (error) {
       alert('识别失败: ' + error.message);
     } finally {
@@ -158,17 +243,14 @@
 
   // 重置功能
   resetBtn.addEventListener('click', () => {
-    // 清除取景框
     capturedImage.src = '';
     capturedImage.style.display = 'none';
-    video.style.display = 'block'; // 重新显示摄像头预览
+    video.style.display = 'block';
 
-    // 清除识别结果
     document.getElementById('result').value = '';
     copyBtn.disabled = true;
     resetBtn.disabled = true;
 
-    // 重新启用摄像头
     if (mediaStream) {
       mediaStream.getTracks().forEach(track => track.stop());
       mediaStream = null;
